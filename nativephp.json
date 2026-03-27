@@ -1,53 +1,34 @@
 {
-    "namespace": "Camera",
+    "namespace": "Gis",
 
     "bridge_functions": [
         {
-            "name": "Camera.GetPhoto",
-            "android": "com.nativephp.camera.CameraFunctions.GetPhoto",
-            "ios": "CameraFunctions.GetPhoto",
-            "description": "Capture a photo with the device camera"
-        },
-        {
-            "name": "Camera.RecordVideo",
-            "android": "com.nativephp.camera.CameraFunctions.RecordVideo",
-            "ios": "CameraFunctions.RecordVideo",
-            "description": "Record a video with the device camera"
-        },
-        {
-            "name": "Camera.PickMedia",
-            "android": "com.nativephp.camera.GalleryFunctions.PickMedia",
-            "ios": "CameraFunctions.PickMedia",
-            "description": "Pick media from the device gallery"
+            "name": "Gis.GetCurrentLocation",
+            "android": "com.nativephp.gis.GpsFunctions.GetCurrentLocation",
+            "ios": "GpsFunctions.GetCurrentLocation",
+            "description": "Get the device's current GPS location"
         }
     ],
 
     "android": {
         "min_version": 26,
         "permissions": [
-            "android.permission.CAMERA",
-            "android.permission.RECORD_AUDIO",
-            "android.permission.FOREGROUND_SERVICE",
-            "android.permission.FOREGROUND_SERVICE_CAMERA"
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION"
         ],
         "dependencies": {
-            "implementation": []
+            "implementation": [
+                "com.google.android.gms:play-services-location:21.3.0"
+            ]
         },
-        "services": [
-            {
-                "name": ".CameraForegroundService",
-                "foregroundServiceType": "camera",
-                "exported": false
-            }
-        ]
+        "services": []
     },
 
     "ios": {
         "min_version": "18.2",
         "info_plist": {
-            "NSCameraUsageDescription": "This app requires camera access to take photos and videos.",
-            "NSMicrophoneUsageDescription": "This app requires microphone access to record video with audio.",
-            "NSPhotoLibraryUsageDescription": "This app requires photo library access to select media."
+            "NSLocationWhenInUseUsageDescription": "This app requires location access to get your current GPS position.",
+            "NSLocationAlwaysAndWhenInUseUsageDescription": "This app requires location access to get your current GPS position."
         },
         "dependencies": {
             "swift_packages": [],
@@ -56,11 +37,8 @@
     },
 
     "events": [
-        "Native\\Mobile\\Events\\Camera\\PhotoTaken",
-        "Native\\Mobile\\Events\\Camera\\PhotoCancelled",
-        "Native\\Mobile\\Events\\Camera\\VideoRecorded",
-        "Native\\Mobile\\Events\\Camera\\VideoCancelled",
-        "Native\\Mobile\\Events\\Gallery\\MediaSelected",
-        "Native\\Mobile\\Events\\Camera\\PermissionDenied"
+        "Native\\Mobile\\Events\\Gis\\LocationReceived",
+        "Native\\Mobile\\Events\\Gis\\LocationPermissionDenied",
+        "Native\\Mobile\\Events\\Gis\\LocationError"
     ]
 }

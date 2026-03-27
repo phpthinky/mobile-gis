@@ -1,6 +1,6 @@
 {
-    "name": "nativephp/mobile-camera",
-    "description": "Camera plugin for NativePHP Mobile (Photo capture, Video recording, Gallery picker)",
+    "name": "nativephp/mobile-gis",
+    "description": "Mobile GIS plugin for NativePHP Mobile (GPS location, map drawing, polygon, markers)",
     "type": "nativephp-plugin",
     "license": "MIT",
     "authors": [
@@ -21,7 +21,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Native\\Mobile\\Providers\\CameraServiceProvider"
+                "Native\\Mobile\\Providers\\GisServiceProvider"
             ]
         },
         "nativephp": {

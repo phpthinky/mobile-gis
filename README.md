@@ -1,181 +1,227 @@
-# Camera Plugin for NativePHP Mobile
+# Mobile GIS Plugin for NativePHP
 
-Camera plugin for NativePHP Mobile providing photo capture, video recording, and gallery picker functionality.
+A NativePHP Mobile plugin that provides GPS location access and GIS capabilities for iOS and Android.
 
-## Overview
+---
 
-The Camera API provides access to the device's camera for taking photos, recording videos, and selecting media from the gallery.
+## Phases
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| 1 | GPS – Get Current Location | ✅ Done |
+| 2 | Leaflet JS – Map, Polygon & Markers | 🔜 Planned |
+
+---
 
 ## Installation
 
-```shell
-composer require nativephp/mobile-camera
+```bash
+composer require nativephp/mobile-gis
 ```
 
-Don't forget to register the plugin:
+The service provider is auto-discovered by Laravel.
 
-```shell
-php artisan native:plugin:register nativephp/mobile-camera
-```
+---
 
-## Usage
+## Phase 1 — GPS: Get Current Location
 
-### PHP (Livewire/Blade)
+Retrieves the device's current GPS coordinates. All results are returned asynchronously via events.
+
+### Required Permissions
+
+**Android** — added automatically via `nativephp.json`:
+- `ACCESS_FINE_LOCATION`
+- `ACCESS_COARSE_LOCATION`
+
+**iOS** — added automatically via `nativephp.json`:
+- `NSLocationWhenInUseUsageDescription`
+- `NSLocationAlwaysAndWhenInUseUsageDescription`
+
+---
+
+### Usage
+
+#### PHP / Livewire
 
 ```php
-use Native\Mobile\Facades\Camera;
+use Native\Mobile\Gis;
 
-// Take a photo
-Camera::getPhoto();
+// Get current location (high accuracy by default)
+Gis::getCurrentLocation();
 
-// Record a video
-Camera::recordVideo();
-
-// Record with max duration
-Camera::recordVideo(['maxDuration' => 30]);
-
-// Using fluent API
-Camera::recordVideo()
-    ->maxDuration(60)
-    ->id('my-video-123')
-    ->start();
-
-// Pick images from gallery
-Camera::pickImages('images', false);  // Single image
-Camera::pickImages('images', true);   // Multiple images
-Camera::pickImages('all', true);      // Any media type
+// With optional parameters
+Gis::getCurrentLocation(
+    id: 'my-location-request',
+    accuracy: 'balanced', // 'high' (GPS) or 'balanced' (network). Default: 'high'
+);
 ```
 
-### JavaScript (Vue/React/Inertia)
+#### JavaScript
 
 ```js
-import { Camera, On, Off, Events } from '#nativephp';
+// Trigger via NativePHP JS bridge
+NativePHP.Gis.GetCurrentLocation({ accuracy: 'high' });
 
-// Take a photo
-await Camera.getPhoto();
-
-// With identifier for tracking
-await Camera.getPhoto()
-    .id('profile-pic');
-
-// Record video
-await Camera.recordVideo()
-    .maxDuration(60);
-
-// Pick images
-await Camera.pickImages()
-    .images()
-    .multiple()
-    .maxItems(5);
+// With optional ID
+NativePHP.Gis.GetCurrentLocation({ id: 'my-request', accuracy: 'balanced' });
 ```
 
-## Events
+---
 
-### `PhotoTaken`
+### Events
 
-Fired when a photo is taken with the camera.
+#### `Native\Mobile\Events\Gis\LocationReceived`
 
-#### PHP
+Fired when the device successfully obtains a GPS location.
 
 ```php
-use Native\Mobile\Attributes\OnNative;
-use Native\Mobile\Events\Camera\PhotoTaken;
+use Native\Mobile\Events\Gis\LocationReceived;
 
-#[OnNative(PhotoTaken::class)]
-public function handlePhotoTaken(string $path)
-{
-    // Process the captured photo
-    $this->processPhoto($path);
+protected $listeners = [
+    'native:' . LocationReceived::class => 'onLocationReceived',
+];
+
+public function onLocationReceived(
+    float $latitude,
+    float $longitude,
+    float $accuracy,   // horizontal accuracy in metres
+    float $altitude,   // metres above sea level
+    float $bearing,    // degrees (0–360), 0 if unavailable
+    float $speed,      // metres per second, 0 if unavailable
+    ?string $id        // echoed back from the original request
+): void {
+    // use coordinates
 }
 ```
 
-#### Vue
+**JavaScript:**
 
 ```js
-import { On, Off, Events } from '#nativephp';
-import { ref, onMounted, onUnmounted } from 'vue';
-
-const photoPath = ref('');
-
-const handlePhotoTaken = (payload) => {
-    photoPath.value = payload.path;
-    processPhoto(payload.path);
-};
-
-onMounted(() => {
-    On(Events.Camera.PhotoTaken, handlePhotoTaken);
-});
-
-onUnmounted(() => {
-    Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+Livewire.on('native:Native\\Mobile\\Events\\Gis\\LocationReceived', (payload) => {
+    console.log(payload.latitude, payload.longitude);
 });
 ```
 
-### `VideoRecorded`
+---
 
-Fired when a video is successfully recorded.
+#### `Native\Mobile\Events\Gis\LocationPermissionDenied`
 
-**Payload:**
-- `string $path` - File path to the recorded video
-- `string $mimeType` - Video MIME type (default: `'video/mp4'`)
-- `?string $id` - Optional identifier if set via `id()` method
-
-### `VideoCancelled`
-
-Fired when video recording is cancelled by the user.
-
-### `MediaSelected`
-
-Fired when media is selected from the gallery.
+Fired when the user denies location permission.
 
 ```php
-use Native\Mobile\Attributes\OnNative;
-use Native\Mobile\Events\Gallery\MediaSelected;
+use Native\Mobile\Events\Gis\LocationPermissionDenied;
 
-#[OnNative(MediaSelected::class)]
-public function handleMediaSelected($success, $files, $count)
+protected $listeners = [
+    'native:' . LocationPermissionDenied::class => 'onPermissionDenied',
+];
+
+public function onPermissionDenied(?string $id): void
 {
-    foreach ($files as $file) {
-        $this->processMedia($file);
+    // Prompt user to enable location in settings
+}
+```
+
+---
+
+#### `Native\Mobile\Events\Gis\LocationError`
+
+Fired when the location request fails (e.g. GPS unavailable, timeout).
+
+```php
+use Native\Mobile\Events\Gis\LocationError;
+
+protected $listeners = [
+    'native:' . LocationError::class => 'onLocationError',
+];
+
+public function onLocationError(string $message, ?string $id): void
+{
+    // Handle error
+}
+```
+
+---
+
+### Full Livewire Example
+
+```php
+<?php
+
+namespace App\Livewire;
+
+use Livewire\Component;
+use Native\Mobile\Gis;
+use Native\Mobile\Events\Gis\LocationReceived;
+use Native\Mobile\Events\Gis\LocationPermissionDenied;
+use Native\Mobile\Events\Gis\LocationError;
+
+class MyMap extends Component
+{
+    public ?float $latitude = null;
+    public ?float $longitude = null;
+    public ?string $error = null;
+
+    protected $listeners = [
+        'native:' . LocationReceived::class => 'onLocationReceived',
+        'native:' . LocationPermissionDenied::class => 'onPermissionDenied',
+        'native:' . LocationError::class => 'onLocationError',
+    ];
+
+    public function getLocation(): void
+    {
+        $this->error = null;
+        Gis::getCurrentLocation(id: 'map-center');
+    }
+
+    public function onLocationReceived(
+        float $latitude,
+        float $longitude,
+        float $accuracy,
+        float $altitude,
+        float $bearing,
+        float $speed,
+        ?string $id
+    ): void {
+        $this->latitude = $latitude;
+        $this->longitude = $longitude;
+    }
+
+    public function onPermissionDenied(?string $id): void
+    {
+        $this->error = 'Location permission was denied. Please enable it in your device settings.';
+    }
+
+    public function onLocationError(string $message, ?string $id): void
+    {
+        $this->error = 'Could not get location: ' . $message;
+    }
+
+    public function render()
+    {
+        return view('livewire.my-map');
     }
 }
 ```
 
-## PendingVideoRecorder API
+---
 
-### `maxDuration(int $seconds)`
+## Event Payload Reference
 
-Set the maximum recording duration in seconds.
+| Event | Field | Type | Description |
+|-------|-------|------|-------------|
+| `LocationReceived` | `latitude` | `float` | Latitude in decimal degrees |
+| `LocationReceived` | `longitude` | `float` | Longitude in decimal degrees |
+| `LocationReceived` | `accuracy` | `float` | Horizontal accuracy in metres |
+| `LocationReceived` | `altitude` | `float` | Altitude in metres above sea level |
+| `LocationReceived` | `bearing` | `float` | Direction in degrees (0–360) |
+| `LocationReceived` | `speed` | `float` | Speed in metres per second |
+| `LocationReceived` | `id` | `string\|null` | Echoed request ID |
+| `LocationPermissionDenied` | `id` | `string\|null` | Echoed request ID |
+| `LocationError` | `message` | `string` | Error description |
+| `LocationError` | `id` | `string\|null` | Echoed request ID |
 
-### `id(string $id)`
+---
 
-Set a unique identifier for this recording to correlate with events.
+## License
 
-### `event(string $eventClass)`
-
-Set a custom event class to dispatch when recording completes.
-
-### `remember()`
-
-Store the recorder's ID in the session for later retrieval.
-
-### `start()`
-
-Explicitly start the video recording.
-
-## Storage Locations
-
-**Photos:**
-- **Android:** App cache directory at `{cache}/captured.jpg`
-- **iOS:** Application Support at `~/Library/Application Support/Photos/captured.jpg`
-
-**Videos:**
-- **Android:** App cache directory at `{cache}/video_{timestamp}.mp4`
-- **iOS:** Application Support at `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
-
-## Notes
-
-- **Permissions:** You must enable the `camera` permission in `config/nativephp.php` to use camera features
-- If permission is denied, camera functions will fail silently
-- Camera permission is required for photos, videos, AND QR/barcode scanning
-- File formats: JPEG for photos, MP4 for videos
+MIT — [NativePHP](https://nativephp.com)
