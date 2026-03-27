@@ -25,11 +25,14 @@ object GpsFunctions {
      *   - id: (optional) string - Optional ID to track this specific location request
      *   - event: (optional) string - Custom event class to fire (defaults to "Native\Mobile\Events\Gis\LocationReceived")
      *   - accuracy: (optional) string - "high" (GPS) or "balanced" (network). Defaults to "high"
+     *   - lastKnown: (optional) boolean - When true, starts continuous background tracking while the app is open
+     *       so that the last cached location is always available. If the device is offline or GPS is
+     *       unavailable, the last known location is returned instead of an error. Defaults to false.
      * Returns:
      *   - (empty map - results are returned via events)
      * Events:
      *   - Fires "Native\Mobile\Events\Gis\LocationReceived" when location is obtained
-     *     Payload: { latitude, longitude, accuracy, altitude, bearing, speed, id? }
+     *     Payload: { latitude, longitude, accuracy, altitude, bearing, speed, isLastKnown, id? }
      *   - Fires "Native\Mobile\Events\Gis\LocationPermissionDenied" when permission is denied
      *     Payload: { id? }
      *   - Fires "Native\Mobile\Events\Gis\LocationError" when location cannot be obtained
@@ -40,8 +43,9 @@ object GpsFunctions {
             val id = parameters["id"] as? String
             val event = parameters["event"] as? String
             val accuracy = parameters["accuracy"] as? String ?: "high"
+            val lastKnown = parameters["lastKnown"] as? Boolean ?: false
 
-            Log.d("GpsFunctions.GetCurrentLocation", "📍 Getting current location with id=$id, accuracy=$accuracy")
+            Log.d("GpsFunctions.GetCurrentLocation", "📍 Getting location id=$id, accuracy=$accuracy, lastKnown=$lastKnown")
 
             Handler(Looper.getMainLooper()).post {
                 try {
@@ -65,22 +69,27 @@ object GpsFunctions {
                         Priority.PRIORITY_BALANCED_POWER_ACCURACY
                     }
 
+                    // When lastKnown is enabled, start continuous background tracking so the cache
+                    // stays fresh for the entire app session (no-op if already running)
+                    if (lastKnown) {
+                        LocationTracker.start(activity, priority)
+                    }
+
                     val fusedClient = LocationServices.getFusedLocationProviderClient(activity)
                     val cancellationToken = CancellationTokenSource()
 
                     fusedClient.getCurrentLocation(priority, cancellationToken.token)
                         .addOnSuccessListener { location ->
                             if (location != null) {
-                                Log.d("GpsFunctions.GetCurrentLocation", "✅ Location obtained: ${location.latitude}, ${location.longitude}")
-                                fireLocationReceived(location, id, event)
+                                Log.d("GpsFunctions.GetCurrentLocation", "✅ Live location: ${location.latitude}, ${location.longitude}")
+                                fireLocationReceived(location, id, event, isLastKnown = false)
                             } else {
-                                Log.w("GpsFunctions.GetCurrentLocation", "⚠️ Location is null")
-                                fireLocationError("Unable to obtain location. Please ensure location services are enabled.", id)
+                                handleMissingLocation(fusedClient, id, event, lastKnown, reason = "Location is null")
                             }
                         }
                         .addOnFailureListener { e ->
-                            Log.e("GpsFunctions.GetCurrentLocation", "❌ Location error: ${e.message}", e)
-                            fireLocationError(e.message ?: "Unknown location error", id)
+                            Log.e("GpsFunctions.GetCurrentLocation", "❌ Location request failed: ${e.message}", e)
+                            handleMissingLocation(fusedClient, id, event, lastKnown, reason = e.message ?: "Unknown error")
                         }
 
                 } catch (e: Exception) {
@@ -92,7 +101,52 @@ object GpsFunctions {
             return emptyMap()
         }
 
-        private fun fireLocationReceived(location: android.location.Location, id: String?, customEvent: String?) {
+        /**
+         * Called when live GPS fails. If lastKnown is enabled, tries in-session cache first,
+         * then the OS-level system last-known location. Otherwise fires LocationError.
+         */
+        private fun handleMissingLocation(
+            fusedClient: com.google.android.gms.location.FusedLocationProviderClient,
+            id: String?,
+            event: String?,
+            lastKnown: Boolean,
+            reason: String
+        ) {
+            if (!lastKnown) {
+                fireLocationError("Unable to obtain location. Please ensure location services are enabled.", id)
+                return
+            }
+
+            // 1st fallback: in-session tracker cache (most fresh)
+            val sessionCached = LocationTracker.lastLocation
+            if (sessionCached != null) {
+                Log.d("GpsFunctions.GetCurrentLocation", "📦 Using session cache: ${sessionCached.latitude}, ${sessionCached.longitude}")
+                fireLocationReceived(sessionCached, id, event, isLastKnown = true)
+                return
+            }
+
+            // 2nd fallback: OS-level system last known (survives across sessions)
+            fusedClient.lastLocation
+                .addOnSuccessListener { sysLocation ->
+                    if (sysLocation != null) {
+                        Log.d("GpsFunctions.GetCurrentLocation", "📦 Using OS last known: ${sysLocation.latitude}, ${sysLocation.longitude}")
+                        fireLocationReceived(sysLocation, id, event, isLastKnown = true)
+                    } else {
+                        Log.w("GpsFunctions.GetCurrentLocation", "⚠️ No cached location available. Original reason: $reason")
+                        fireLocationError("Device is offline and no cached location is available.", id)
+                    }
+                }
+                .addOnFailureListener { e ->
+                    fireLocationError("Device is offline and last known location could not be retrieved: ${e.message}", id)
+                }
+        }
+
+        private fun fireLocationReceived(
+            location: android.location.Location,
+            id: String?,
+            customEvent: String?,
+            isLastKnown: Boolean
+        ) {
             val eventClass = customEvent ?: "Native\\Mobile\\Events\\Gis\\LocationReceived"
             val payload = mutableMapOf<String, Any>(
                 "latitude" to location.latitude,
@@ -100,7 +154,8 @@ object GpsFunctions {
                 "accuracy" to location.accuracy,
                 "altitude" to location.altitude,
                 "bearing" to location.bearing,
-                "speed" to location.speed
+                "speed" to location.speed,
+                "isLastKnown" to isLastKnown
             )
             if (id != null) payload["id"] = id
             NativeActionCoordinator.dispatchEvent(eventClass, payload)
