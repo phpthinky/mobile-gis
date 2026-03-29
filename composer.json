@@ -3,12 +3,6 @@
     "description": "Mobile GIS plugin for NativePHP Mobile (GPS location, map drawing, polygon, markers)",
     "type": "nativephp-plugin",
     "license": "MIT",
-    "authors": [
-        {
-            "name": "NativePHP",
-            "email": "info@nativephp.com"
-        }
-    ],
     "require": {
         "php": "^8.2",
         "nativephp/mobile": "*"
