@@ -16,7 +16,7 @@ A NativePHP Mobile plugin that provides GPS location access and GIS capabilities
 ## Installation
 
 ```bash
-composer require nativephp/mobile-gis
+composer require phpthinky/mobile-gis
 ```
 
 The service provider is auto-discovered by Laravel.
