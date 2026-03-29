@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body, #map { width: 100%; height: 100%; background: #e8e0d8; }
+
+    #toolbar {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toolbar-btn {
+      background: #fff;
+      border: 2px solid rgba(0,0,0,.15);
+      border-radius: 6px;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,.15);
+      color: #333;
+      transition: background .15s, color .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .toolbar-btn:active { opacity: .75; }
+    .toolbar-btn.active { background: #e74c3c; color: #fff; border-color: #c0392b; }
+
+    #draw-hint {
+      position: absolute;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(0,0,0,.65);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      pointer-events: none;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="toolbar">
+    <button class="toolbar-btn" id="draw-btn" onclick="toggleDrawMode()">Draw Polygon</button>
+  </div>
+
+  <div id="draw-hint">Tap to add points &nbsp;·&nbsp; Double-tap to finish</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // ── NativePHP bridge ─────────────────────────────────────────────────────
+
+    function postToNative(event, data) {
+      var msg = JSON.stringify({ event: event, data: data || {} });
+      if (window.NativePHPMap) {
+        // Android JavascriptInterface
+        window.NativePHPMap.postMessage(msg);
+      } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativePHPMap) {
+        // iOS WKScriptMessageHandler
+        window.webkit.messageHandlers.nativePHPMap.postMessage(msg);
+      }
+    }
+
+    // ── Map state ────────────────────────────────────────────────────────────
+
+    var map = null;
+    var markers  = {};   // id → L.Marker
+    var polygons = {};   // id → L.Polygon
+
+    // Draw mode
+    var drawMode       = false;
+    var drawPoints     = [];    // [[lat, lng], ...]
+    var drawDots       = [];    // L.CircleMarker for each tap
+    var drawPreview    = null;  // L.Polyline preview
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
+    function initMap(lat, lng, zoom, requestId) {
+      if (map) return;
+
+      map = L.map('map', { zoomControl: true, doubleClickZoom: false })
+               .setView([lat, lng], zoom || 13);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19
+      }).addTo(map);
+
+      map.on('click', onMapClick);
+      map.on('dblclick', onMapDblClick);
+
+      postToNative('Native\\Mobile\\Events\\Gis\\MapReady', requestId ? { id: requestId } : {});
+    }
+
+    // ── Markers ──────────────────────────────────────────────────────────────
+
+    function addMarker(id, lat, lng, label, color) {
+      removeMarker(id);
+
+      var markerOpts = {};
+      if (color) {
+        markerOpts.icon = L.divIcon({
+          className: '',
+          html: '<div style="width:16px;height:16px;border-radius:50%;background:' + color +
+                ';border:2px solid rgba(255,255,255,.9);box-shadow:0 1px 5px rgba(0,0,0,.4)"></div>',
+          iconSize:   [16, 16],
+          iconAnchor: [8, 8],
+          popupAnchor:[0, -12]
+        });
+      }
+
+      var m = L.marker([lat, lng], markerOpts);
+      if (label) m.bindTooltip(label, { permanent: false, direction: 'top', offset: [0, -8] });
+
+      m.on('click', function (e) {
+        L.DomEvent.stopPropagation(e);
+        postToNative('Native\\Mobile\\Events\\Gis\\MarkerClicked', {
+          id: id, latitude: lat, longitude: lng, label: label || null
+        });
+      });
+
+      m.addTo(map);
+      markers[id] = m;
+    }
+
+    function removeMarker(id) {
+      if (markers[id]) { map.removeLayer(markers[id]); delete markers[id]; }
+    }
+
+    // ── Polygons ─────────────────────────────────────────────────────────────
+
+    function addPolygon(id, coordinates, color, fillColor, fillOpacity) {
+      removePolygon(id);
+
+      var latlngs = coordinates.map(function (c) { return [c.latitude, c.longitude]; });
+      var p = L.polygon(latlngs, {
+        color:       color       || '#3388ff',
+        fillColor:   fillColor   || color || '#3388ff',
+        fillOpacity: fillOpacity != null ? fillOpacity : 0.2,
+        weight: 2
+      });
+
+      p.on('click', function (e) {
+        L.DomEvent.stopPropagation(e);
+        postToNative('Native\\Mobile\\Events\\Gis\\PolygonClicked', { id: id });
+      });
+
+      p.addTo(map);
+      polygons[id] = p;
+    }
+
+    function removePolygon(id) {
+      if (polygons[id]) { map.removeLayer(polygons[id]); delete polygons[id]; }
+    }
+
+    // ── Set View ─────────────────────────────────────────────────────────────
+
+    function setView(lat, lng, zoom) {
+      if (!map) return;
+      map.setView([lat, lng], zoom != null ? zoom : map.getZoom(), { animate: true });
+    }
+
+    // ── Draw mode ────────────────────────────────────────────────────────────
+
+    function toggleDrawMode() {
+      drawMode = !drawMode;
+      var btn  = document.getElementById('draw-btn');
+      var hint = document.getElementById('draw-hint');
+
+      if (drawMode) {
+        btn.textContent = 'Cancel';
+        btn.classList.add('active');
+        hint.style.display = 'block';
+        map.getContainer().style.cursor = 'crosshair';
+      } else {
+        cancelDraw();
+      }
+    }
+
+    function cancelDraw() {
+      drawMode = false;
+      drawPoints = [];
+      drawDots.forEach(function (d) { map.removeLayer(d); });
+      drawDots = [];
+      if (drawPreview) { map.removeLayer(drawPreview); drawPreview = null; }
+
+      var btn  = document.getElementById('draw-btn');
+      var hint = document.getElementById('draw-hint');
+      btn.textContent = 'Draw Polygon';
+      btn.classList.remove('active');
+      hint.style.display = 'none';
+      map.getContainer().style.cursor = '';
+    }
+
+    function onMapClick(e) {
+      if (!drawMode) return;
+
+      var pt = [e.latlng.lat, e.latlng.lng];
+      drawPoints.push(pt);
+
+      // Visual dot for each tap
+      var dot = L.circleMarker(pt, {
+        radius: 5, color: '#e74c3c', fillColor: '#e74c3c', fillOpacity: 1, weight: 2
+      }).addTo(map);
+      drawDots.push(dot);
+
+      // Update preview polyline
+      if (drawPreview) map.removeLayer(drawPreview);
+      if (drawPoints.length >= 2) {
+        drawPreview = L.polyline(drawPoints, {
+          color: '#e74c3c', weight: 2, dashArray: '6 4', opacity: .8
+        }).addTo(map);
+      }
+    }
+
+    function onMapDblClick(e) {
+      if (!drawMode || drawPoints.length < 3) return;
+      L.DomEvent.stop(e);
+
+      var coords = drawPoints.map(function (p) { return { latitude: p[0], longitude: p[1] }; });
+      cancelDraw();
+      postToNative('Native\\Mobile\\Events\\Gis\\PolygonCreated', { coordinates: coords });
+    }
+
+    // ── NativePHP → JS command dispatcher ────────────────────────────────────
+
+    window.NativePHPMapCommand = function (json) {
+      var cmd = (typeof json === 'string') ? JSON.parse(json) : json;
+      switch (cmd.action) {
+        case 'init':
+          initMap(cmd.lat, cmd.lng, cmd.zoom, cmd.id);
+          break;
+        case 'addMarker':
+          addMarker(cmd.id, cmd.lat, cmd.lng, cmd.label || null, cmd.color || null);
+          break;
+        case 'removeMarker':
+          removeMarker(cmd.id);
+          break;
+        case 'addPolygon':
+          addPolygon(cmd.id, cmd.coordinates, cmd.color || null, cmd.fillColor || null, cmd.fillOpacity);
+          break;
+        case 'removePolygon':
+          removePolygon(cmd.id);
+          break;
+        case 'setView':
+          setView(cmd.lat, cmd.lng, cmd.zoom != null ? cmd.zoom : null);
+          break;
+      }
+    };
+  </script>
+</body>
+</html>

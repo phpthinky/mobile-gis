@@ -1,0 +1,88 @@
+{
+    "namespace": "Gis",
+
+    "bridge_functions": [
+        {
+            "name": "Gis.GetCurrentLocation",
+            "android": "com.nativephp.gis.GpsFunctions.GetCurrentLocation",
+            "ios": "GpsFunctions.GetCurrentLocation",
+            "description": "Get the device's current GPS location"
+        },
+        {
+            "name": "Gis.Map.Show",
+            "android": "com.nativephp.gis.LeafletMapFunctions.Show",
+            "ios": "LeafletMapFunctions.Show",
+            "description": "Open a full-screen Leaflet map overlay"
+        },
+        {
+            "name": "Gis.Map.AddMarker",
+            "android": "com.nativephp.gis.LeafletMapFunctions.AddMarker",
+            "ios": "LeafletMapFunctions.AddMarker",
+            "description": "Add or replace a marker on the active map"
+        },
+        {
+            "name": "Gis.Map.RemoveMarker",
+            "android": "com.nativephp.gis.LeafletMapFunctions.RemoveMarker",
+            "ios": "LeafletMapFunctions.RemoveMarker",
+            "description": "Remove a marker from the active map"
+        },
+        {
+            "name": "Gis.Map.AddPolygon",
+            "android": "com.nativephp.gis.LeafletMapFunctions.AddPolygon",
+            "ios": "LeafletMapFunctions.AddPolygon",
+            "description": "Add or replace a polygon on the active map"
+        },
+        {
+            "name": "Gis.Map.RemovePolygon",
+            "android": "com.nativephp.gis.LeafletMapFunctions.RemovePolygon",
+            "ios": "LeafletMapFunctions.RemovePolygon",
+            "description": "Remove a polygon from the active map"
+        },
+        {
+            "name": "Gis.Map.SetView",
+            "android": "com.nativephp.gis.LeafletMapFunctions.SetView",
+            "ios": "LeafletMapFunctions.SetView",
+            "description": "Pan and/or zoom the active map"
+        }
+    ],
+
+    "android": {
+        "min_version": 26,
+        "permissions": [
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION"
+        ],
+        "dependencies": {
+            "implementation": [
+                "com.google.android.gms:play-services-location:21.3.0"
+            ]
+        },
+        "services": [],
+        "activities": [
+            "com.nativephp.gis.MapActivity"
+        ]
+    },
+
+    "ios": {
+        "min_version": "18.2",
+        "info_plist": {
+            "NSLocationWhenInUseUsageDescription": "This app requires location access to get your current GPS position.",
+            "NSLocationAlwaysAndWhenInUseUsageDescription": "This app requires location access to get your current GPS position."
+        },
+        "dependencies": {
+            "swift_packages": [],
+            "pods": []
+        }
+    },
+
+    "events": [
+        "Native\\Mobile\\Events\\Gis\\LocationReceived",
+        "Native\\Mobile\\Events\\Gis\\LocationPermissionDenied",
+        "Native\\Mobile\\Events\\Gis\\LocationError",
+        "Native\\Mobile\\Events\\Gis\\MapReady",
+        "Native\\Mobile\\Events\\Gis\\MapClosed",
+        "Native\\Mobile\\Events\\Gis\\MarkerClicked",
+        "Native\\Mobile\\Events\\Gis\\PolygonCreated",
+        "Native\\Mobile\\Events\\Gis\\PolygonClicked"
+    ]
+}
